@@ -12,9 +12,9 @@
 #   - disables common stock apps and launcher packages
 #
 # Usage examples:
-#   CALCOS_BASE_URL=https://example.com/calcos bash install-calcos.sh
-#   CALCOS_APK_URL=https://example.com/calcos/calcos-launcher.apk bash install-calcos.sh
-#   bash install-calcos.sh --apk-url https://example.com/calcos-launcher.apk
+#   CALCOS_BASE_URL=https://bubbleplayzthereal.github.io/GraphiteX bash install-calcos.sh
+#   CALCOS_APK_URL=https://bubbleplayzthereal.github.io/GraphiteX/calcos-launcher.apk bash install-calcos.sh
+#   bash install-calcos.sh --apk-url https://bubbleplayzthereal.github.io/GraphiteX/calcos-launcher.apk
 # =============================================================
 
 set -euo pipefail
@@ -28,7 +28,8 @@ fi
 CALCOS_PACKAGE="org.calcos.launcher"
 CALCOS_ACTIVITY="org.calcos.launcher/.KioskActivity"
 CALCOS_ADMIN="org.calcos.launcher/.AdminReceiver"
-CALCOS_DEFAULT_APK_URL="${CALCOS_BASE_URL:-}"
+CALCOS_DEFAULT_BASE_URL="https://bubbleplayzthereal.github.io/GraphiteX"
+CALCOS_DEFAULT_APK_URL="${CALCOS_BASE_URL:-$CALCOS_DEFAULT_BASE_URL}"
 if [ -n "${CALCOS_DEFAULT_APK_URL}" ]; then
     CALCOS_DEFAULT_APK_URL="${CALCOS_DEFAULT_APK_URL%/}/calcos-launcher.apk"
 fi
