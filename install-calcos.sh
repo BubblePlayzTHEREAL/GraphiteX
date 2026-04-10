@@ -40,6 +40,7 @@ APK_FILE=""
 APK_URL="${CALCOS_APK_URL:-${CALCOS_DEFAULT_APK_URL:-}}"
 ADB_SERIAL="${ADB_SERIAL:-}"
 SKIP_DISABLE="${CALCOS_SKIP_DISABLE:-0}"
+UNINSTALL_MODE=0
 ADB_BIN=""
 
 cleanup() {
@@ -186,6 +187,130 @@ collect_device() {
     printf '%s\n' "$device_line"
 }
 
+check_device_ready() {
+    local status=""
+
+    log "Checking device connection..."
+
+    status="$(adb_cmd get-state 2>&1 || true)"
+    if [ "$status" != "device" ]; then
+        die "No authorised device found (state: ${status:-unknown}). Make sure USB debugging is enabled on the device and you have accepted the RSA fingerprint prompt."
+    fi
+
+    # Verify USB debugging is truly authorised (not just connected)
+    if ! adb_cmd shell echo ok >/dev/null 2>&1; then
+        die "Device is connected but adb commands are rejected. Enable USB debugging and accept the fingerprint prompt on the device."
+    fi
+
+    log "Device ready: $(adb_cmd shell getprop ro.product.model 2>/dev/null | tr -d '\r' || echo unknown)"
+}
+
+reenable_packages() {
+    local pkg
+    local packages=(
+        com.android.launcher3
+        com.android.launcher3.quickstep
+        com.google.android.googlequicksearchbox
+        com.android.chrome
+        com.google.android.apps.chrome
+        com.google.android.youtube
+        com.google.android.apps.youtube
+        com.google.android.apps.maps
+        com.google.android.apps.photos
+        com.google.android.gm
+        com.google.android.calendar
+        com.google.android.contacts
+        com.google.android.dialer
+        com.google.android.apps.messaging
+        com.android.camera2
+        com.android.camera
+        com.android.gallery3d
+        com.android.music
+        com.android.email
+        com.android.browser
+        com.android.mms
+        com.android.contacts
+        com.android.dialer
+        com.android.phone
+        com.android.messaging
+        com.android.documentsui
+        com.android.providers.downloads.ui
+        com.android.providers.downloads
+        com.android.vending
+        com.google.android.gms
+        com.google.android.gsf
+        com.google.android.apps.tachyon
+        com.google.android.apps.assistant
+        org.lineageos.jelly
+        org.lineageos.eleven
+        org.lineageos.etar
+        org.lineageos.recorder
+        org.lineageos.snap
+        org.lineageos.calendar
+        org.lineageos.music
+        Trebuchet
+        Launcher3
+        Launcher3QuickStep
+        Camera2
+        Gallery2
+        Music
+        Calendar
+        Email
+        Contacts
+        ContactsProvider
+        Dialer
+        Phone
+        Messaging
+        Mms
+        Browser
+        Browser2
+        Chrome
+        GoogleChrome
+        Maps
+        YouTube
+        PlayStore
+        GmsCore
+        GoogleServicesFramework
+        Phonesky
+        Velvet
+        Files
+        DocumentsUI
+        DownloadProvider
+        DownloadProviderUi
+    )
+
+    for pkg in "${packages[@]}"; do
+        adb_cmd shell pm enable --user 0 "$pkg" >/dev/null 2>&1 || true
+        adb_cmd shell cmd package enable-user --user 0 "$pkg" >/dev/null 2>&1 || true
+    done
+}
+
+uninstall_calcos() {
+    log "Removing CalcOS device-owner / admin..."
+    adb_cmd shell dpm remove-active-admin "$CALCOS_ADMIN" >/dev/null 2>&1 || \
+        warn "Could not remove active admin (may not have been set, or device needs factory-reset to clear)."
+
+    log "Reverting kiosk settings..."
+    adb_cmd shell settings delete global policy_control >/dev/null 2>&1 || true
+    adb_cmd shell settings put system screen_off_timeout 60000 >/dev/null 2>&1 || true
+    adb_cmd shell settings delete secure lockscreen.disabled >/dev/null 2>&1 || true
+    adb_cmd shell settings put system screen_brightness_mode 1 >/dev/null 2>&1 || true
+
+    log "Re-enabling stock apps and launchers..."
+    reenable_packages
+
+    log "Resetting default home activity..."
+    adb_cmd shell pm clear-default-preferred-activities >/dev/null 2>&1 || true
+    # Remove CalcOS as preferred home by clearing its defaults
+    adb_cmd shell pm clear "$CALCOS_PACKAGE" >/dev/null 2>&1 || true
+
+    log "Uninstalling CalcOS Launcher..."
+    adb_cmd uninstall "$CALCOS_PACKAGE" >/dev/null 2>&1 || \
+        warn "Could not uninstall $CALCOS_PACKAGE (may not be installed)."
+
+    log "Uninstall complete. You may need to select a new default launcher on the device."
+}
+
 disable_packages() {
     local pkg
     local packages=(
@@ -296,6 +421,10 @@ main() {
                 SKIP_DISABLE=1
                 shift
                 ;;
+            --uninstall)
+                UNINSTALL_MODE=1
+                shift
+                ;;
             -h|--help)
                 cat <<'EOF'
 Install CalcOS on a connected Android device.
@@ -305,6 +434,7 @@ Options:
   --base-url URL     Use URL/calcos-launcher.apk as the APK source
   --device SERIAL    Target a specific adb device serial
   --skip-disable     Skip the app-disable step
+  --uninstall        Remove CalcOS, re-enable stock apps, and reset the launcher
 EOF
                 return 0
                 ;;
@@ -318,6 +448,13 @@ EOF
     device="$(collect_device)"
 
     log "Using device: $device"
+
+    check_device_ready
+
+    if [ "$UNINSTALL_MODE" = "1" ]; then
+        uninstall_calcos
+        return 0
+    fi
 
     if [ -z "$APK_URL" ]; then
         apk_source="$(resolve_local_apk || true)"
